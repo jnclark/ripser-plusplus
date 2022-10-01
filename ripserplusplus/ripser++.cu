@@ -156,12 +156,21 @@ struct index_t_pair_struct{//data type for a pivot in the coboundary matrix: (ro
 };
 
 typedef struct {
-    value_t birth;
-    value_t death;
-} birth_death_coordinate;
+    index_t simplex_v0;
+    index_t simplex_v1;
+    index_t simplex_v2;
+    index_t simplex_v3;
+    index_t simplex_v4;
+    index_t simplex_v5;
+    index_t simplex_v6;
+    index_t simplex_v7;
+    index_t simplex_v8;
+    index_t simplex_v9;
+} arbitrary_simplex;
+
 typedef struct{
     index_t num_barcodes;
-    birth_death_coordinate* barcodes;
+    arbitrary_simplex* barcodes;
 } set_of_barcodes;
 typedef struct{
     int num_dimensions;
@@ -171,7 +180,7 @@ typedef struct{
 ripser_plusplus_result res;
 
 
-std::vector<std::vector<birth_death_coordinate>> list_of_barcodes = std::vector<std::vector<birth_death_coordinate>>();
+std::vector<std::vector<arbitrary_simplex>> list_of_barcodes = std::vector<std::vector<arbitrary_simplex>>();
 
 struct row_cidx_column_idx_struct_compare{
     __host__ __device__ bool operator()(struct index_t_pair_struct a, struct index_t_pair_struct b){
@@ -1552,6 +1561,8 @@ template <typename DistanceMatrix> class ripser {
     float ratio;
     const binomial_coeff_table binomial_coeff;
     mutable std::vector<index_t> vertices;
+    mutable std::vector<index_t> birth_simplex;
+    mutable std::vector<index_t> death_simplex;
     mutable std::vector<diameter_index_t_struct> cofacet_entries;
 private:
     size_t freeMem, totalMem;
@@ -1903,8 +1914,8 @@ public:
 #ifdef PRINT_PERSISTENCE_PAIRS
                     std::cout << " [0," << e.diameter << ")" << std::endl;
 #endif
-                    //Collect persistence pair
-                    birth_death_coordinate barcode = {0,e.diameter};
+                    //Collect barcode
+                    arbitrary_simplex barcode = {u,e.index,0,0,0,0,0,0,0,0};
                     list_of_barcodes[0].push_back(barcode);
                 }
 #endif
@@ -2077,6 +2088,7 @@ public:
                     } else {
 #if defined(PRINT_PERSISTENCE_PAIRS) || defined(PYTHON_BARCODE_COLLECTION)
                         value_t death= pivot.diameter;
+                        index_t pivotindex= pivot.index;
                         if (death > diameter * ratio) {
 #ifdef INDICATE_PROGRESS
                             std::cerr << "\033[K";
@@ -2085,7 +2097,7 @@ public:
                             std::cout << " [" << diameter << "," << death << ")" << std::endl
                                       << std::flush;
 #endif
-                            birth_death_coordinate barcode = {diameter,death};
+                            arbitrary_simplex barcode = {diameter,death,0,0,0,0,0,0,0,0};
                             list_of_barcodes[dim].push_back(barcode);
                         }
 #endif
@@ -2137,6 +2149,10 @@ public:
                     working_coboundary;
 
             value_t diameter= column_to_reduce.diameter;
+            index_t columnindex = column_to_reduce.index;
+            
+            birth_simplex.clear();
+            get_simplex_vertices(columnindex,dim,dist.size(), std::back_inserter(birth_simplex));
 
             index_t index_column_to_add= index_column_to_reduce;
 
@@ -2174,16 +2190,20 @@ public:
                     }else{
 #if defined(PRINT_PERSISTENCE_PAIRS) || defined(PYTHON_BARCODE_COLLECTION)
                         value_t death= pivot.diameter;
+                        index_t pivotindex = pivot.index;
+                        
+                        death_simplex.clear();
+                        get_simplex_vertices(pivotindex,dim+1,dist.size(), std::back_inserter(death_simplex));
                         if (death > diameter * ratio) {
 #ifdef INDICATE_PROGRESS
                             std::cerr << clear_line << std::flush;
 #endif
 
 #ifdef PRINT_PERSISTENCE_PAIRS
-                            std::cout << " [" << diameter << "," << death << ")" << std::endl
+                            std::cout << " [" << diameter << "," << death << "," << columnindex << "," << pivotindex << ")" << std::endl
                                       << std::flush;
 #endif
-                            birth_death_coordinate barcode = {diameter,death};
+                            arbitrary_simplex barcode = {birth_simplex[0],birth_simplex[1],birth_simplex[2],birth_simplex[3],dim,death_simplex[0],death_simplex[1],death_simplex[2],death_simplex[3],death_simplex[4]};
                             list_of_barcodes[dim].push_back(barcode);
                         }
 #endif
@@ -2410,7 +2430,7 @@ void ripser<compressed_lower_distance_matrix>::gpu_compute_dim_0_pairs(std::vect
 #ifdef PRINT_PERSISTENCE_PAIRS
                 std::cout << " [0," << e.diameter << ")" << std::endl;
 #endif
-                birth_death_coordinate barcode = {0,e.diameter};
+                arbitrary_simplex barcode = {u,e.index,0,0,0,0,0,0,0,0};
                 list_of_barcodes[0].push_back(barcode);
             }
 #endif
@@ -2492,7 +2512,7 @@ void ripser<sparse_distance_matrix>::gpu_compute_dim_0_pairs(std::vector<struct 
 #ifdef PRINT_PERSISTENCE_PAIRS
                 std::cout << " [0," << e.diameter << ")" << std::endl;
 #endif
-                birth_death_coordinate barcode = {0,e.diameter};
+                arbitrary_simplex barcode = {0,e.diameter,0,0,0,0,0,0,0,0};
                 list_of_barcodes[0].push_back(barcode);
             }
 #endif
@@ -3779,9 +3799,9 @@ extern "C" ripser_plusplus_result run_main_filename(int argc,  char** argv, cons
         }
     }
 
-    list_of_barcodes = std::vector<std::vector<birth_death_coordinate>>();
+    list_of_barcodes = std::vector<std::vector<arbitrary_simplex>>();
     for(index_t i = 0; i <= dim_max; i++){
-        list_of_barcodes.push_back(std::vector<birth_death_coordinate>());
+        list_of_barcodes.push_back(std::vector<arbitrary_simplex>());
     }
 
     std::ifstream file_stream(filename);
@@ -3869,7 +3889,7 @@ extern "C" ripser_plusplus_result run_main_filename(int argc,  char** argv, cons
 
     set_of_barcodes* collected_barcodes = (set_of_barcodes*)malloc(sizeof(set_of_barcodes) * list_of_barcodes.size());
     for(index_t i = 0; i < list_of_barcodes.size();i++){
-        birth_death_coordinate* barcode_array = (birth_death_coordinate*)malloc(sizeof(birth_death_coordinate) * list_of_barcodes[i].size());
+        arbitrary_simplex* barcode_array = (arbitrary_simplex*)malloc(sizeof(arbitrary_simplex) * list_of_barcodes[i].size());
 
         index_t j;
         for(j = 0; j < list_of_barcodes[i].size(); j++){
@@ -3946,9 +3966,9 @@ extern "C" ripser_plusplus_result run_main(int argc, char** argv, value_t* matri
         }
     }
 
-    list_of_barcodes = std::vector<std::vector<birth_death_coordinate>>();
+    list_of_barcodes = std::vector<std::vector<arbitrary_simplex>>();
     for(index_t i = 0; i <= dim_max; i++){
-        list_of_barcodes.push_back(std::vector<birth_death_coordinate>());
+        list_of_barcodes.push_back(std::vector<arbitrary_simplex>());
     }
 
     if (format == SPARSE) {//this branch is currently unsupported in run_main, see run_main_filename() instead
@@ -4032,7 +4052,7 @@ extern "C" ripser_plusplus_result run_main(int argc, char** argv, value_t* matri
 
     set_of_barcodes* collected_barcodes = (set_of_barcodes*)malloc(sizeof(set_of_barcodes) * list_of_barcodes.size());
     for(index_t i = 0; i < list_of_barcodes.size();i++){
-        birth_death_coordinate* barcode_array = (birth_death_coordinate*)malloc(sizeof(birth_death_coordinate) * list_of_barcodes[i].size());
+        arbitrary_simplex* barcode_array = (arbitrary_simplex*)malloc(sizeof(arbitrary_simplex) * list_of_barcodes[i].size());
 
         index_t j;
         for(j = 0; j < list_of_barcodes[i].size(); j++){
@@ -4110,9 +4130,9 @@ int main(int argc, char** argv) {
         }
     }
 
-    list_of_barcodes = std::vector<std::vector<birth_death_coordinate>>();
+    list_of_barcodes = std::vector<std::vector<arbitrary_simplex>>();
     for(index_t i = 0; i <= dim_max; i++){
-        list_of_barcodes.push_back(std::vector<birth_death_coordinate>());
+        list_of_barcodes.push_back(std::vector<arbitrary_simplex>());
     }
 
     std::ifstream file_stream(filename);
